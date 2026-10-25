@@ -683,7 +683,7 @@ app = Flask(__name__)
 # Global event loop reference so the Flask thread can schedule coroutines
 _main_event_loop = None
 
-CASINO_GROUP_LINK = "https://t.me/rollerscasino"
+CASINO_GROUP_LINK = "https://t.me/therollerscasino"
 CASINO_GROUP_ID = int(os.getenv("CASINO_GROUP_ID", "-1004222734406"))
 
 # ── EARLY GLOBALS — must exist before Flask routes can handle requests ────────
@@ -1648,7 +1648,7 @@ def _tg_send_deposit_notification(
     network=None,
 ):
     """Send deposit confirmation directly via Telegram Bot API (sync, works from any thread).
-    Pings the user in DM AND in the casino group chat @rollerscasino."""
+    Pings the user in DM AND in the casino group chat @therollerscasino."""
     dm_delivered = False
     try:
         token = os.environ.get("TELEGRAM_BOT_TOKEN", "") or os.environ.get("BOT_TOKEN", "")
@@ -1729,7 +1729,7 @@ def _tg_send_deposit_notification(
         except Exception as dm_err:
             logger.error(f"Deposit DM exception for {user_id}: {dm_err}", exc_info=True)
 
-        # ── Announce in casino group @rollerscasino ───────────────────────────
+        # ── Announce in casino group @therollerscasino ────────────────────────
         try:
             cgid = globals().get('CASINO_GROUP_CHAT_ID')
             if not cgid:
@@ -8834,7 +8834,7 @@ def _main_menu_caption(user_id: str) -> str:
         f'{format_balance_in_currency(balance, currency)}\n\n'
         f'<tg-emoji emoji-id="6136241486854888906">ℹ️</tg-emoji> '
         f'<b>{_tr(uid, "welcome_about")}</b>\n'
-        f'<a href="https://t.me/RollersCasino">Chat</a> | '
+        f'<a href="{CASINO_GROUP_LINK}">Chat</a> | '
         f'<a href="https://t.me/arshxy">Support</a> | '
         f'<a href="https://t.me/RollersCasinoUpdates">News</a>'
     )
@@ -10694,7 +10694,7 @@ async def ref_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     
     # Links
     referral_link = f"https://t.me/{bot_username}?start={user_id}"
-    group_link = "https://t.me/rollerscasino"
+    group_link = CASINO_GROUP_LINK
     
     referral_message = (
         "<b>Referral Program</b>\n\n"
