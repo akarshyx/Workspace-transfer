@@ -6104,6 +6104,7 @@ class UserState:
     # NOWPayments withdrawal states (address first flow)
     NP_WITHDRAWAL_ADDRESS = "np_withdrawal_address"
     NP_WITHDRAWAL_AMOUNT = "np_withdrawal_amount"
+    TELEGRAM_STARS_CUSTOM_AMOUNT = "telegram_stars_custom_amount"
     # Stuck deposit reporting
     STUCK_DEPOSIT_HASH = "stuck_deposit_hash"
     STUCK_DEPOSIT_AMOUNT = "stuck_deposit_amount"
@@ -23875,6 +23876,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "crypto_deposits",
             "stars_deposit",
             "stars_pay:",
+            "stars_custom",
                 "np_deposit_",
                 "crypto_withdraw",
                 "np_withdraw",
@@ -23968,7 +23970,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             _SHARED_CB_PREFIXES = (
                 "rainjoin", "join_giveaway", "accept_tip", "sp_pvp_",
                 "noop", "owner_", "tip_", "deposit_proof_", "crypto_deposit",
-                "stars_deposit", "stars_pay:",
+                "stars_deposit", "stars_pay:", "stars_custom",
                 "confirm_inr", "reject_inr",  # owner-only INR verify buttons
                 # Admin actions are sent to the owner from a player's
                 # withdrawal/deposit handler, so the ownership tracker records
@@ -24404,6 +24406,26 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     elif query.data == "stars_deposit":
         await handle_telegram_stars_menu(query, context)
+        return
+    elif query.data == "stars_custom":
+        user_states[str(query.from_user.id)] = UserState.TELEGRAM_STARS_CUSTOM_AMOUNT
+        try:
+            await query.answer()
+        except Exception:
+            pass
+        await _edit_callback_text_or_send(
+            query,
+            context,
+            "<b>Custom Stars invoice</b>\n\n"
+            "Send a whole-number amount of Telegram Stars. The invoice is paid to "
+            "the bot (not to @arshxy), and your casino balance is credited at the "
+            "displayed conversion.\n\n"
+            "Enter 1 or more Stars, up to Telegram's 12-digit invoice limit.",
+            reply_markup=InlineKeyboardMarkup([[
+                danger_btn("Back", callback_data="stars_deposit")
+            ]]),
+            parse_mode=ParseMode.HTML,
+        )
         return
     elif query.data.startswith("stars_pay:"):
         _stars_parts = query.data.split(":")
@@ -29143,6 +29165,37 @@ TELEGRAM_GIFT_BUTTON_EMOJI_ID = "6303251320224622462"
 TELEGRAM_WARNING_EMOJI_ID = "5368454557288391017"
 TELEGRAM_GIFT_OWNER_USERNAME = "arshxy"
 TELEGRAM_GIFT_USD_PER_STAR = 1.0 / 84.0
+TELEGRAM_STARS_MAX_AMOUNT = 999_999_999_999
+
+
+def _telegram_stars_amount_cents(stars: int) -> int:
+    """Convert an XTR amount to the casino's USD cents at the configured rate."""
+    stars = int(stars)
+    if not 1 <= stars <= TELEGRAM_STARS_MAX_AMOUNT:
+        raise ValueError("Telegram Stars amount is outside the supported range")
+    for package_stars, package_usd in TELEGRAM_STARS_PACKAGES:
+        if package_stars == stars:
+            return int(round(package_usd * 100))
+    return max(1, int(round(stars * TELEGRAM_GIFT_USD_PER_STAR * 100)))
+
+
+async def _create_telegram_stars_invoice_link(
+    bot, user_id: str, stars: int, cents: int
+) -> str:
+    """Create a bot-owned XTR invoice for a validated Stars amount."""
+    expected_cents = _telegram_stars_amount_cents(stars)
+    if int(cents) != expected_cents:
+        raise ValueError("Stars amount and USD conversion do not match")
+    amount_usd = expected_cents / 100.0
+    payload = f"stars:{user_id}:{stars}:{expected_cents}"
+    return await bot.create_invoice_link(
+        title=f"Top up ${amount_usd:.2f}",
+        description=f"Deposit ${amount_usd:.2f} into your casino balance.",
+        payload=payload,
+        provider_token="",
+        currency="XTR",
+        prices=[LabeledPrice(f"{stars:,} Telegram Stars", stars)],
+    )
 
 
 def _telegram_warning_emoji() -> str:
@@ -29376,13 +29429,27 @@ async def _poll_owner_gifts_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def handle_telegram_stars_menu(query, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show the Star deposit amounts."""
+    """Show personal-account gifts and bot-owned Stars invoice amounts."""
+    user_id = str(query.from_user.id)
+    if user_states.get(user_id) == UserState.TELEGRAM_STARS_CUSTOM_AMOUNT:
+        user_states.pop(user_id, None)
     try:
         await query.answer()
     except Exception:
         pass
 
-    rows = []
+    rows = [
+        [success_btn(
+            f"Send a Telegram Gift to @{TELEGRAM_GIFT_OWNER_USERNAME}",
+            callback_data="deposit_gifts",
+            icon_custom_emoji_id=TELEGRAM_GIFT_BUTTON_EMOJI_ID,
+        )],
+        [primary_btn(
+            "Custom Stars amount — bot invoice",
+            callback_data="stars_custom",
+            icon_custom_emoji_id=TELEGRAM_STAR_BUTTON_EMOJI_ID,
+        )],
+    ]
     for stars, usd in TELEGRAM_STARS_PACKAGES:
         label = f"${usd:.2f}"
         button_factory = success_btn if usd in (1.00, 50.00) else primary_btn
@@ -29397,11 +29464,15 @@ async def handle_telegram_stars_menu(query, context: ContextTypes.DEFAULT_TYPE) 
     await _edit_callback_text_or_send(
         query,
         context,
-        "<b>Select or enter deposit amount</b>\n\n"
-        "<b>Minimum deposit is $1</b>\n\n"
+        "<b>Choose a Telegram Stars option</b>\n\n"
+        f"🎁 <b>Personal account:</b> Send a Telegram Gift to "
+        f"<b>@{TELEGRAM_GIFT_OWNER_USERNAME}</b>. Telegram sets the available gift prices.\n\n"
+        "⭐ <b>Bot invoice:</b> Choose a preset or enter a custom Stars amount below. "
+        "Invoice payments go to the bot, not to the personal account.\n\n"
         f"{_telegram_warning_emoji()} Funds from this deposit will be locked for withdrawals, "
         "transfers, and rains until you wager ×5 in PvE modes.\n\n"
-        "<i>Telegram determines the final purchase price in your region.</i>",
+        "<i>Telegram determines the final purchase price in your region. Custom invoices "
+        "accept whole-number Stars amounts within Telegram's limit.</i>",
         reply_markup=InlineKeyboardMarkup(rows),
         parse_mode=ParseMode.HTML,
     )
@@ -29422,7 +29493,7 @@ async def handle_telegram_stars_payment_choice(
         (usd for package_stars, usd in TELEGRAM_STARS_PACKAGES if package_stars == stars),
         None,
     )
-    if expected_usd is None or cents != int(round(expected_usd * 100)):
+    if expected_usd is None or cents != _telegram_stars_amount_cents(stars):
         await query.answer("Invalid Telegram Stars package.", show_alert=True)
         return
 
@@ -29432,15 +29503,9 @@ async def handle_telegram_stars_payment_choice(
         pass
 
     user_id = str(query.from_user.id)
-    payload = f"stars:{user_id}:{stars}:{cents}"
     try:
-        invoice_link = await context.bot.create_invoice_link(
-            title=f"Top up ${expected_usd:.2f}",
-            description=f"Deposit ${expected_usd:.2f} into your casino balance.",
-            payload=payload,
-            provider_token="",
-            currency="XTR",
-            prices=[LabeledPrice(f"{stars:,} Telegram Stars", stars)],
+        invoice_link = await _create_telegram_stars_invoice_link(
+            context.bot, user_id, stars, cents
         )
     except Exception as exc:
         logger.error("[STARS] Could not create invoice link: %s", exc, exc_info=True)
@@ -29469,7 +29534,8 @@ async def handle_telegram_stars_payment_choice(
         context,
         f"<b>Top up ${expected_usd:.2f}</b>\n\n"
         f"<b>Due: {stars:,} Telegram Stars</b>\n"
-        "Tap the button below to pay the invoice through Telegram.",
+        "Tap below to pay the bot's Stars invoice. This payment is not sent to "
+        f"@{TELEGRAM_GIFT_OWNER_USERNAME}.",
         reply_markup=markup,
         parse_mode=ParseMode.HTML,
     )
@@ -29490,16 +29556,12 @@ async def handle_telegram_stars_precheckout(
         payload_user_id, stars_text, cents_text = parts[1:]
         stars = int(stars_text)
         cents = int(cents_text)
-        expected_usd = next(
-            (usd for package_stars, usd in TELEGRAM_STARS_PACKAGES if package_stars == stars),
-            None,
-        )
+        expected_cents = _telegram_stars_amount_cents(stars)
         if (
             payload_user_id != str(checkout.from_user.id)
             or checkout.currency != "XTR"
             or checkout.total_amount != stars
-            or expected_usd is None
-            or cents != int(round(expected_usd * 100))
+            or cents != expected_cents
         ):
             raise ValueError("Stars invoice validation failed")
         await checkout.answer(ok=True)
@@ -29527,16 +29589,13 @@ async def handle_telegram_stars_successful_payment(
         payload_user_id, stars_text, cents_text = parts[1:]
         stars = int(stars_text)
         cents = int(cents_text)
-        expected_usd = next(
-            (usd for package_stars, usd in TELEGRAM_STARS_PACKAGES if package_stars == stars),
-            None,
-        )
+        expected_cents = _telegram_stars_amount_cents(stars)
+        expected_usd = expected_cents / 100.0
         if (
             payload_user_id != str(update.effective_user.id)
             or payment.currency != "XTR"
             or payment.total_amount != stars
-            or expected_usd is None
-            or cents != int(round(expected_usd * 100))
+            or cents != expected_cents
         ):
             raise ValueError("Stars payment validation failed")
 
@@ -36462,6 +36521,80 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             user_states.pop(user_id, None)
             await _pump_send_setup_message(update.message, context, user_id, bet_usd)
             return
+
+        if state == UserState.TELEGRAM_STARS_CUSTOM_AMOUNT:
+            if chat_type != "private":
+                user_states.pop(user_id, None)
+                await update.message.reply_text(
+                    "Please enter a custom Stars amount in the bot's private chat."
+                )
+                raise ApplicationHandlerStop
+            if payments_blocked_for(user_id):
+                user_states.pop(user_id, None)
+                await update.message.reply_text(
+                    "Stars payments are temporarily paused. Please try again later."
+                )
+                raise ApplicationHandlerStop
+
+            stars_text = text.strip().replace(",", "").replace("_", "")
+            if (
+                not stars_text.isascii()
+                or not stars_text.isdigit()
+                or len(stars_text) > 12
+            ):
+                await update.message.reply_text(
+                    "Enter a whole number of up to 12 digits, such as "
+                    "<code>250</code>.",
+                    parse_mode=ParseMode.HTML,
+                )
+                raise ApplicationHandlerStop
+
+            stars = int(stars_text)
+            if not 1 <= stars <= TELEGRAM_STARS_MAX_AMOUNT:
+                await update.message.reply_text(
+                    "Enter an amount from 1 to "
+                    f"{TELEGRAM_STARS_MAX_AMOUNT:,} Stars."
+                )
+                raise ApplicationHandlerStop
+
+            cents = _telegram_stars_amount_cents(stars)
+            amount_usd = cents / 100.0
+            try:
+                invoice_link = await _create_telegram_stars_invoice_link(
+                    context.bot, user_id, stars, cents
+                )
+            except Exception as exc:
+                logger.error(
+                    "[STARS] Could not create custom invoice for user %s: %s",
+                    user_id,
+                    exc,
+                    exc_info=True,
+                )
+                await update.message.reply_text(
+                    "Telegram could not create that invoice. Please try another "
+                    "amount or return to the Stars menu."
+                )
+                raise ApplicationHandlerStop
+
+            user_states.pop(user_id, None)
+            await update.message.reply_text(
+                f"<b>Custom bot invoice</b>\n\n"
+                f"Amount: <b>{stars:,} Telegram Stars</b>\n"
+                f"Casino balance credit: <b>${amount_usd:.2f}</b>\n\n"
+                f"Telegram will charge the Stars to the bot's payment balance, "
+                f"not to @{TELEGRAM_GIFT_OWNER_USERNAME}.",
+                reply_markup=InlineKeyboardMarkup([[
+                    success_btn(
+                        "Pay Stars invoice",
+                        url=invoice_link,
+                        icon_custom_emoji_id=TELEGRAM_STAR_BUTTON_EMOJI_ID,
+                    )
+                ], [
+                    danger_btn("Back to Stars", callback_data="stars_deposit")
+                ]]),
+                parse_mode=ParseMode.HTML,
+            )
+            raise ApplicationHandlerStop
 
         # Owner broadcast content collection
         if state == UserState.WAITING_BROADCAST_CONTENT:

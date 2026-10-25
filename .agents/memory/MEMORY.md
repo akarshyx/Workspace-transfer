@@ -1,0 +1,1 @@
+- [Telegram Stars recipients](telegram-stars-recipient.md) — Bot invoices credit the bot; a personal account must use Telegram Gifts.
