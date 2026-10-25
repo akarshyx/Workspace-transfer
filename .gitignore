@@ -53,3 +53,25 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Telegram casino bot runtime state and credentials
+/services/rollers-casino-bot/.env
+/services/rollers-casino-bot/.env.*
+/services/rollers-casino-bot/bot.env
+/services/rollers-casino-bot/.bot_config
+/services/rollers-casino-bot/backups/
+/services/rollers-casino-bot/casino_data.json
+/services/rollers-casino-bot/critical_data.json
+/services/rollers-casino-bot/balances_backup.json
+/services/rollers-casino-bot/processed_*.json
+/services/rollers-casino-bot/transaction_log.json
+/services/rollers-casino-bot/*_audit.json
+/services/rollers-casino-bot/audit_log.json
+/services/rollers-casino-bot/error_log.json
+/services/rollers-casino-bot/active_rains.json
+/services/rollers-casino-bot/user_data_export_*.json
+/services/rollers-casino-bot/*.db
+/services/rollers-casino-bot/*.sqlite*
+/services/rollers-casino-bot/*.session*
+/services/rollers-casino-bot/.venv/
+/services/rollers-casino-bot/__pycache__/

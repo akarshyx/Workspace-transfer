@@ -1,0 +1,36 @@
+kind = "web"
+previewPath = "/"
+title = "Casino"
+description = "A polished virtual-credits casino experience with quick-play games, a wallet, recent activity, and responsible-play guardrails."
+version = "1.0.0"
+id = "artifacts/casino"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22412
+
+[services.development]
+run = "pnpm --filter @workspace/casino run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/casino", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/casino/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22412"
+BASE_PATH = "/"
+
+[[services]]
+name = "telegram-bot"
+localPort = 5000
+paths = ["/nowpayments"]
+
+[services.development]
+run = "cd ../.. && SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt CASINO_NON_INTERACTIVE=1 bash run.sh"

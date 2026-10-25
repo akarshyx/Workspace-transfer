@@ -1,4 +1,4 @@
-modules = ["nodejs-24"]
+modules = ["nodejs-24", "python-base-3.13"]
 
 [deployment]
 router = "application"
@@ -9,7 +9,6 @@ args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
 [workflows]
-runButton = "Project"
 
 [agent]
 stack = "PNPM_WORKSPACE"
